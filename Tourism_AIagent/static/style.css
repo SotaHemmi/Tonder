@@ -1,0 +1,196 @@
+/* static/style.css */
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f5f5;
+    margin: 0;
+}
+
+.container {
+    max-width: 900px;
+    margin: 24px auto;
+    background: #fff;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+h1 {
+    margin-top: 0;
+}
+
+form fieldset {
+    border: 1px solid #ccc;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.form-group {
+    margin-bottom: 16px;
+}
+
+input[type="text"], select {
+    width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+}
+
+button {
+    padding: 10px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    background: #1976d2;
+    color: #fff;
+    font-weight: bold;
+}
+
+button:hover {
+    opacity: 0.9;
+}
+
+.card {
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+    background: #fafafa;
+}
+
+.messages .message {
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.message.error {
+    background: #ffebee;
+    color: #b71c1c;
+}
+
+/* ---- card stack ---- */
+.card-stack {
+  position: relative;
+  min-height: 560px;
+}
+
+/* 1枚表示：カードを画面高さに合わせて伸縮させる */
+.card-spot {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: #fafafa;
+  transition: transform 200ms ease, opacity 200ms ease;
+  will-change: transform, opacity;
+
+  /* 重要：カード内を縦レイアウトにする */
+  display: none; /* showCard()で block にする */
+  flex-direction: column;
+  overflow: hidden; /* 画像がはみ出して文章を隠さない */
+}
+
+/* showCard()で block にしてたけど、flexにしたいのでクラスで対応 */
+.card-spot.is-active {
+  display: flex;
+}
+
+/* 画像は固定高さ（スマホ向け） */
+.card-image-wrapper {
+  width: 100%;
+  height: 220px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #eee;
+  flex: 0 0 auto;
+}
+
+.card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* カード本文はスクロール可能にして、下のボタン領域を守る */
+.card-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-top: 10px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 長文（おすすめ理由）は折りたたみ */
+.reason {
+  margin-top: 8px;
+  line-height: 1.5;
+}
+.reason.is-collapsed {
+  display: -webkit-box;
+  line-clamp: 4;     
+  -webkit-line-clamp: 4;       /* 4行で切る */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.reason-toggle {
+  margin-top: 6px;
+  display: inline-block;
+  background: transparent;
+  color: #1976d2;
+  border: none;
+  padding: 0;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* スワイプアニメ */
+.card-spot.swipe-left {
+  transform: translateX(-120%) rotate(-8deg);
+  opacity: 0;
+}
+.card-spot.swipe-right {
+  transform: translateX(120%) rotate(8deg);
+  opacity: 0;
+}
+
+.card-controls {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card-counter {
+  font-weight: 600;
+  color: #444;
+}
+
+.card-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.card-buttons button {
+  flex: 1;
+}
+
+/* ---- スマホ最適化 ---- */
+@media (max-width: 640px) {
+  .container {
+    margin: 0;
+    border-radius: 0;
+    padding: 14px;
+    min-height: 100vh;
+    box-shadow: none;
+  }
+
+  .card-stack {
+    min-height: calc(100vh - 180px); /* 上の説明 + 下ボタン分を避ける */
+  }
+
+  .card-image-wrapper {
+    height: 200px;
+  }
+
+  .card h2 {
+    font-size: 1.1rem;
+  }
+}

@@ -1,0 +1,276 @@
+<!-- templates/result.html -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>おすすめ結果 - 観光おすすめシステム</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<div class="container">
+    <h1>おすすめスポット</h1>
+    <p>
+        カテゴリ: {{ "飲食" if category == "restaurant" else "観光" }} /
+        ジャンル: {{ genre_label }} /
+        起点: {{ station if station else "（地図指定）" }}
+    </p>
+
+    {% if spots %}
+        <div id="card-stack" class="card-stack">
+            {% for spot in spots %}
+                <div class="card card-spot"
+                     data-index="{{ loop.index0 }}"
+                     data-lat="{{ spot.lat }}"
+                     data-lng="{{ spot.lng }}">
+                    {% if spot.image_url %}
+                        <div class="card-image-wrapper">
+                            <img
+                              src="{{ url_for('photo_proxy') }}?url={{ spot.image_url|urlencode }}"
+                              alt="{{ spot.name }} の写真"
+                              class="card-image"
+                              onerror="this.style.display='none';"
+                            >
+                        </div>
+                    {% endif %}
+
+                    <!-- ✅ ここから下がスクロール可能な本文 -->
+                    <div class="card-body">
+                        <h2>第{{ loop.index }}候補：{{ spot.name }}</h2>
+                        <p><strong>住所:</strong> {{ spot.address }}</p>
+                        <p><strong>ジャンル:</strong> {{ spot.genre }}</p>
+
+                        {% if spot.rating %}
+                            <p><strong>評価:</strong>
+                                {{ "%.1f"|format(spot.rating) }} / 5
+                                （{{ spot.reviews_count }}件）
+                            </p>
+                        {% endif %}
+
+                        <p><strong>滞在目安:</strong> 約 {{ spot.stay_time_minutes }} 分</p>
+
+                        <p><strong>おすすめ理由:</strong></p>
+                        <div class="reason is-collapsed" data-reason>
+                            {{ spot.reason }}
+                        </div>
+                        <button type="button" class="reason-toggle" data-reason-toggle>
+                            もっと見る
+                        </button>
+
+                        <details style="margin-top:10px;">
+                            <summary>スコア内訳を表示</summary>
+                            <ul>
+                                {% for k, v in spot.score_breakdown.items() %}
+                                    <li>{{ k }}: {{ v }}</li>
+                                {% endfor %}
+                            </ul>
+                            <p><strong>総合スコア:</strong> {{ "%.2f"|format(spot.total_score) }}</p>
+                            <p><strong>情報ソース:</strong> {{ spot.source }}</p>
+                        </details>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div id="controls" class="card-controls">
+            <div class="card-counter" id="card-counter">
+                1 / {{ spots|length }}
+            </div>
+            <div class="card-buttons">
+                <button type="button" id="btn-dislike">スキップ（左スワイプ）</button>
+                <button type="button" id="btn-like">行きたい（右スワイプ）</button>
+            </div>
+        </div>
+
+        <p id="finished-message" style="display:none; margin-top:16px;">
+            すべての候補を見終わりました。
+            <a href="{{ url_for('index') }}">条件を変えてもう一度探す</a>
+        </p>
+    {% else %}
+        <p>候補がありませんでした。</p>
+        <p><a href="{{ url_for('index') }}">条件を変えて探し直す</a></p>
+    {% endif %}
+</div>
+
+<script>
+  const cards = Array.from(document.querySelectorAll('.card-spot'));
+  let currentIndex = 0;
+
+  function resetCardStyle(card) {
+    card.classList.remove('swipe-left', 'swipe-right');
+    card.style.transform = '';
+    card.style.opacity = '';
+  }
+
+  function setActive(index) {
+    cards.forEach((card, i) => {
+      if (i === index) {
+        card.classList.add('is-active');
+        resetCardStyle(card);
+
+        // そのカードの本文スクロールを先頭に戻す
+        const body = card.querySelector('.card-body');
+        if (body) body.scrollTop = 0;
+
+        // 折りたたみも初期化
+        const reason = card.querySelector('[data-reason]');
+        const toggle = card.querySelector('[data-reason-toggle]');
+        if (reason && toggle) {
+          reason.classList.add('is-collapsed');
+          toggle.textContent = 'もっと見る';
+        }
+      } else {
+        card.classList.remove('is-active');
+        resetCardStyle(card);
+      }
+    });
+
+    const counter = document.getElementById('card-counter');
+    if (counter) counter.textContent = (index + 1) + ' / ' + cards.length;
+  }
+
+  function finishIfNeeded() {
+    if (currentIndex >= cards.length - 1) {
+      document.getElementById('controls').style.display = 'none';
+      document.getElementById('finished-message').style.display = 'block';
+      return true;
+    }
+    return false;
+  }
+
+  function goNext() {
+    if (finishIfNeeded()) return;
+    currentIndex += 1;
+    setActive(currentIndex);
+  }
+
+  function swipe(direction) {
+    const card = cards[currentIndex];
+    if (!card) return;
+
+    card.classList.add(direction === 'right' ? 'swipe-right' : 'swipe-left');
+
+    setTimeout(() => {
+      goNext();
+    }, 200);
+  }
+
+  // ✅「行きたいボタン」の動作を正とする（右スワイプも同じ関数を呼ぶ）
+  function openMapsForCurrent() {
+    const card = cards[currentIndex];
+    if (!card) return;
+
+    const lat = card.dataset.lat;
+    const lng = card.dataset.lng;
+
+    if (lat && lng) {
+      // ✅ ナビ開始（スマホでGoogle Mapsアプリが起動しやすい）
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+      window.open(url, '_blank', 'noopener');
+    }
+
+    // ✅ Maps を開いた後に次へ（右スワイプ/ボタン共通）
+    swipe('right');
+  }
+
+  // ボタン操作（クリック誤爆防止つき）
+  const btnDislike = document.getElementById('btn-dislike');
+  const btnLike = document.getElementById('btn-like');
+
+  if (btnDislike) {
+    btnDislike.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      swipe('left');
+    });
+  }
+
+  if (btnLike) {
+    btnLike.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openMapsForCurrent();
+    });
+  }
+
+  // スワイプ操作（タッチ）
+  const cardStack = document.getElementById('card-stack');
+  let touchStartX = null;
+  let touchStartY = null;
+  let suppressClickUntil = 0;
+
+  cardStack.addEventListener('touchstart', (e) => {
+    if (!e.changedTouches || e.changedTouches.length === 0) return;
+    touchStartX = e.changedTouches[0].clientX;
+    touchStartY = e.changedTouches[0].clientY;
+  }, { passive: true });
+
+  // 横スワイプを検知したら、ブラウザのデフォルト動作（スクロール/クリック誘発）を止める
+  cardStack.addEventListener('touchmove', (e) => {
+    if (touchStartX === null || touchStartY === null) return;
+
+    const x = e.changedTouches[0].clientX;
+    const y = e.changedTouches[0].clientY;
+    const dx = x - touchStartX;
+    const dy = y - touchStartY;
+
+    // 横方向が優勢なら「スワイプ」とみなす
+    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  cardStack.addEventListener('touchend', (e) => {
+    // ✅ スワイプ後に click が暴発するのを止める
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (touchStartX === null) return;
+
+    const endX = e.changedTouches[0].clientX;
+    const diffX = endX - touchStartX;
+    const threshold = 60;
+
+    if (diffX > threshold) {
+      // ✅ 右スワイプ＝「行きたいボタン」と同じ
+      openMapsForCurrent();
+    } else if (diffX < -threshold) {
+      swipe('left');
+    }
+
+    // touchend 後に遅れて来る click を一定時間無視（保険）
+    suppressClickUntil = Date.now() + 700;
+
+    touchStartX = null;
+    touchStartY = null;
+  }, { passive: false });
+
+  // ✅ スワイプ直後の click を無視する（スマホ誤爆対策）
+  cardStack.addEventListener('click', (e) => {
+    if (Date.now() < suppressClickUntil) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
+  // ✅ 折りたたみ（もっと見る）
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-reason-toggle]');
+    if (!btn) return;
+
+    const card = btn.closest('.card-spot');
+    if (!card) return;
+
+    const reason = card.querySelector('[data-reason]');
+    if (!reason) return;
+
+    const collapsed = reason.classList.toggle('is-collapsed');
+    btn.textContent = collapsed ? 'もっと見る' : '折りたたむ';
+  });
+
+  // 初期表示
+  if (cards.length > 0) setActive(0);
+</script>
+
+</body>
+</html>

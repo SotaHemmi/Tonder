@@ -1,0 +1,210 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>観光おすすめシステム</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<div class="container">
+    <h1>観光おすすめシステム</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="messages">
+          {% for category, message in messages %}
+            <div class="message {{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <form action="{{ url_for('recommend') }}" method="post">
+        <!-- カテゴリ -->
+        <fieldset>
+            <legend>カテゴリ</legend>
+            <label>
+                <input type="radio" name="category" value="restaurant" checked>
+                飲食（レストラン / カフェ）
+            </label>
+            <label>
+                <input type="radio" name="category" value="place">
+                観光スポット / 施設
+            </label>
+        </fieldset>
+
+        <!-- 🔍 検索方法 -->
+        <fieldset>
+            <legend>検索方法</legend>
+            <label>
+                <input type="radio" name="search_mode" value="station" checked>
+                駅名で検索
+            </label>
+            <label>
+                <input type="radio" name="search_mode" value="map">
+                地図で検索
+            </label>
+        </fieldset>
+
+        <!-- 駅名 -->
+        <div class="form-group" id="station-group">
+            <label>起点となる駅</label>
+            <input type="text" name="station" placeholder="例）名古屋駅">
+            <p class="note">駅名で検索する場合はこちらを入力してください。</p>
+        </div>
+
+        <!-- 地図で場所を指定 -->
+        <div class="form-group" id="map-group" style="display:none;">
+            <label>地図で場所を指定</label>
+            <div id="map" style="height: 300px; border-radius: 8px; overflow: hidden;"></div>
+            <input type="hidden" name="lat" id="lat-input">
+            <input type="hidden" name="lng" id="lng-input">
+            <p id="latlng-display" style="margin-top: 8px; font-size: 0.9rem; color: #555;">
+                地図をクリックすると、その地点が起点になります。
+            </p>
+        </div>
+
+        <!-- ジャンル & 優先度 -->
+        <div id="restaurant-options" class="category-options">
+            <h3>飲食ジャンル</h3>
+            <select name="genre">
+                {% for key, label in restaurant_genres.items() %}
+                    <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+
+            <h3>優先したいポイント</h3>
+            <select name="priority">
+                {% for key, label in restaurant_priorities.items() %}
+                    <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div id="place-options" class="category-options" style="display:none;">
+            <h3>観光ジャンル</h3>
+            <select name="genre">
+                {% for key, label in place_genres.items() %}
+                    <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+
+            <h3>優先したいポイント</h3>
+            <select name="priority">
+                {% for key, label in place_priorities.items() %}
+                    <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <h3>検索範囲（半径）</h3>
+        <select name="radius">
+            <option value="500">500 m</option>
+            <option value="1000" selected>1 km</option>
+            <option value="2000">2 km</option>
+            <option value="3000">3 km</option>
+            <option value="5000">5 km</option>
+        </select>
+
+
+        <button type="submit">おすすめを表示</button>
+    </form>
+</div>
+
+<script>
+    // カテゴリ切り替え（飲食 / 観光）
+    const categoryRadios = document.querySelectorAll('input[name="category"]');
+    const restOpts = document.getElementById('restaurant-options');
+    const placeOpts = document.getElementById('place-options');
+
+    function updateCategoryOptions() {
+        const value = document.querySelector('input[name="category"]:checked').value;
+        if (value === "restaurant") {
+            restOpts.style.display = "block";
+            placeOpts.style.display = "none";
+        } else {
+            restOpts.style.display = "none";
+            placeOpts.style.display = "block";
+        }
+    }
+
+    categoryRadios.forEach(r => r.addEventListener('change', updateCategoryOptions));
+    updateCategoryOptions();
+
+    // 検索方法切り替え（駅名 / 地図）
+    const searchModeRadios = document.querySelectorAll('input[name="search_mode"]');
+    const stationGroup = document.getElementById('station-group');
+    const mapGroup = document.getElementById('map-group');
+
+    let map;        // Google Map インスタンス
+    let marker;     // クリックした位置のマーカー
+    const initialPos = { lat: 35.170915, lng: 136.881537 }; // 名古屋駅あたり
+
+    function updateSearchMode() {
+        const mode = document.querySelector('input[name="search_mode"]:checked').value;
+        if (mode === "station") {
+            stationGroup.style.display = "block";
+            mapGroup.style.display = "none";
+        } else {
+            stationGroup.style.display = "none";
+            mapGroup.style.display = "block";
+            // 地図タブに切り替えた後にサイズを調整
+            if (map) {
+                setTimeout(() => {
+                    google.maps.event.trigger(map, "resize");
+                    map.setCenter(initialPos);
+                }, 0);
+            }
+        }
+    }
+
+    searchModeRadios.forEach(r => r.addEventListener('change', updateSearchMode));
+    // initMap 内でも最後に呼ぶ
+</script>
+
+<script>
+    // Google Maps のコールバックとして呼ばれる
+    let latInput, lngInput, latlngDisplay;
+
+    function initMap() {
+        latInput = document.getElementById('lat-input');
+        lngInput = document.getElementById('lng-input');
+        latlngDisplay = document.getElementById('latlng-display');
+
+        map = new google.maps.Map(document.getElementById("map"), {
+            center: initialPos,
+            zoom: 13,
+        });
+
+        map.addListener("click", (e) => {
+            const lat = e.latLng.lat();
+            const lng = e.latLng.lng();
+
+            if (marker) {
+                marker.setMap(null);
+            }
+            marker = new google.maps.Marker({
+                position: { lat, lng },
+                map: map,
+            });
+
+            latInput.value = lat;
+            lngInput.value = lng;
+            latlngDisplay.textContent =
+                `選択中：緯度 ${lat.toFixed(5)}, 経度 ${lng.toFixed(5)}`;
+        });
+
+        // 初期の検索方法表示を反映
+        updateSearchMode();
+    }
+</script>
+
+<!-- Google Maps JavaScript API 読み込み -->
+<script
+  src="https://maps.googleapis.com/maps/api/js?key={{ google_api_key }}&callback=initMap"
+  async defer
+></script>
+
+</body>
+</html>
