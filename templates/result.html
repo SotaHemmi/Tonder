@@ -1,0 +1,154 @@
+<!-- templates/result.html -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>おすすめ結果 - 観光おすすめシステム</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<div class="container">
+    <h1>おすすめスポット</h1>
+    <p>
+        カテゴリ: {{ "飲食" if category == "restaurant" else "観光" }} /
+        ジャンル: {{ genre_label }} /
+        起点: {{ station if station else "（地図指定）" }}
+    </p>
+
+    {% if spots %}
+        <div id="card-stack" class="card-stack">
+            {% for spot in spots %}
+                <div class="card card-spot"
+                     data-index="{{ loop.index0 }}"
+                     data-lat="{{ spot.lat }}"
+                     data-lng="{{ spot.lng }}">
+                    {% if spot.image_url %}
+                        <div class="card-image-wrapper">
+                            <img src="{{ spot.image_url }}"
+                                 alt="{{ spot.name }} の写真"
+                                 class="card-image">
+                        </div>
+                    {% endif %}
+
+                    <h2>第{{ loop.index }}候補：{{ spot.name }}</h2>
+                    <p><strong>住所:</strong> {{ spot.address }}</p>
+                    <p><strong>ジャンル:</strong> {{ spot.genre }}</p>
+
+                    {% if spot.rating %}
+                        <p><strong>評価:</strong>
+                            {{ "%.1f"|format(spot.rating) }} / 5
+                            （{{ spot.reviews_count }}件）
+                        </p>
+                    {% endif %}
+
+                    <p><strong>滞在目安:</strong> 約 {{ spot.stay_time_minutes }} 分</p>
+                    <p><strong>おすすめ理由:</strong><br>{{ spot.reason }}</p>
+
+                    <details>
+                        <summary>スコア内訳を表示</summary>
+                        <ul>
+                            {% for k, v in spot.score_breakdown.items() %}
+                                <li>{{ k }}: {{ v }}</li>
+                            {% endfor %}
+                        </ul>
+                        <p><strong>総合スコア:</strong> {{ "%.2f"|format(spot.total_score) }}</p>
+                        <p><strong>情報ソース:</strong> {{ spot.source }}</p>
+                    </details>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div id="controls" class="card-controls">
+            <div class="card-counter" id="card-counter">
+                1 / {{ spots|length }}
+            </div>
+            <div class="card-buttons">
+                <button type="button" id="btn-dislike">スキップ（左スワイプ）</button>
+                <button type="button" id="btn-like">行きたい（右スワイプ）</button>
+            </div>
+        </div>
+
+        <p id="finished-message" style="display:none; margin-top:16px;">
+            すべての候補を見終わりました。
+            <a href="{{ url_for('index') }}">条件を変えてもう一度探す</a>
+        </p>
+    {% else %}
+        <p>候補がありませんでした。</p>
+        <p><a href="{{ url_for('index') }}">条件を変えて探し直す</a></p>
+    {% endif %}
+</div>
+
+<script>
+    const cards = Array.from(document.querySelectorAll('.card-spot'));
+    let currentIndex = 0;
+
+    function showCard(index) {
+        cards.forEach((card, i) => {
+            card.style.display = (i === index) ? 'block' : 'none';
+        });
+        const counter = document.getElementById('card-counter');
+        if (counter) {
+            counter.textContent = (index + 1) + ' / ' + cards.length;
+        }
+    }
+
+    function nextCard() {
+        if (currentIndex < cards.length - 1) {
+            currentIndex += 1;
+            showCard(currentIndex);
+        } else {
+            // 最後まで見た
+            document.getElementById('controls').style.display = 'none';
+            document.getElementById('finished-message').style.display = 'block';
+        }
+    }
+
+    function openMapsForCurrent() {
+        const card = cards[currentIndex];
+        if (!card) return;
+        const lat = card.dataset.lat;
+        const lng = card.dataset.lng;
+        if (lat && lng) {
+            const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+            window.open(url, '_blank');
+        }
+        nextCard();
+    }
+
+    // ボタン操作
+    document.getElementById('btn-dislike').addEventListener('click', nextCard);
+    document.getElementById('btn-like').addEventListener('click', openMapsForCurrent);
+
+    // スワイプ操作（タッチ）
+    const cardStack = document.getElementById('card-stack');
+    let touchStartX = null;
+
+    cardStack.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].clientX;
+    });
+
+    cardStack.addEventListener('touchend', (e) => {
+        if (touchStartX === null) return;
+        const endX = e.changedTouches[0].clientX;
+        const diffX = endX - touchStartX;
+        const threshold = 50;  // 右 or 左に 50px 以上動いたらスワイプ判定
+
+        if (diffX > threshold) {
+            // 右スワイプ → 行きたい（Googleマップ）＋次カード
+            openMapsForCurrent();
+        } else if (diffX < -threshold) {
+            // 左スワイプ → スキップ
+            nextCard();
+        }
+        touchStartX = null;
+    });
+
+    // 初期表示
+    if (cards.length > 0) {
+        showCard(0);
+    }
+</script>
+
+</body>
+</html>

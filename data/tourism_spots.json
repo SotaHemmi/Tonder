@@ -1,0 +1,32 @@
+[
+  {
+    "id": "t-tokyo-tower",
+    "type": "tourism",
+    "name": "東京タワーナイトビュー",
+    "lat": 35.65858,
+    "lng": 139.74543,
+    "description": "東京の象徴を真下から見上げるナイトツアー。ライトアップと街の光がシネマティックに映るデモ動画。",
+    "videoPath": "/static/demo_videos/tokyo-night.mp4",
+    "genre": "シティ"
+  },
+  {
+    "id": "t-asakusa",
+    "type": "tourism",
+    "name": "浅草・雷門ドリフト",
+    "lat": 35.71111,
+    "lng": 139.79666,
+    "description": "仲見世を通り抜けて夕暮れの雷門へ向かうショートトラベル。提灯と人流を強調したデモ動画。",
+    "videoPath": "/static/demo_videos/asakusa-sunset.mp4",
+    "genre": "カルチャー"
+  },
+  {
+    "id": "t-minatomirai",
+    "type": "tourism",
+    "name": "横浜みなとみらい・夜景クルーズ",
+    "lat": 35.45499,
+    "lng": 139.63803,
+    "description": "観覧車と海面の反射光をゆったり捉えたデモ動画。ループ再生で没入感を演出。",
+    "videoPath": "/static/demo_videos/minatomirai-cruise.mp4",
+    "genre": "ベイエリア"
+  }
+]

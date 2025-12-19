@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>生成メディアカードスタック式 空間探索型意思決定支援システム</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="gradient-bg">
+    <header class="hero">
+        <div>
+            <p class="eyebrow">生成メディアカードスタック式 空間探索型意思決定支援システム</p>
+            <h1>空間を起点に、観光AI動画とグルメをスワイプで選ぶ</h1>
+            {% if missing_banner %}
+                <p class="banner warning">{{ missing_banner }}</p>
+            {% endif %}
+        </div>
+        <div class="hero-actions">
+            <span class="pill">右スワイプ＝Like</span>
+            <span class="pill">左スワイプ＝Dislike</span>
+        </div>
+    </header>
+
+    <main class="layout">
+        <section class="panel map-panel">
+            <div class="panel-head">
+                <div>
+                    <p class="eyebrow">Map基点</p>
+                    <h2>ピンを置いて半径を決める</h2>
+                </div>
+                <button id="generate-btn" class="primary">候補を生成</button>
+            </div>
+            <div id="map" class="map"></div>
+            <div class="map-meta">
+                <div>
+                    <p class="label">現在の基点</p>
+                    <p id="coord-text" class="value">35.68096, 139.76731</p>
+                </div>
+                <div>
+                    <p class="label">検索半径</p>
+                    <div class="radius-control">
+                        <input type="range" id="radius-range" min="300" max="5000" step="100" value="2000">
+                        <span id="radius-label">2.0 km</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel cards-panel">
+            <div class="panel-head">
+                <div class="mode-switch" role="tablist">
+                    <button class="mode-btn active" data-mode="tourism" role="tab">観光 / AI動画</button>
+                    <button class="mode-btn" data-mode="gourmet" role="tab">グルメ / ホットペッパー</button>
+                </div>
+                <div class="legend">
+                    <span>カード上部でモードを切替 → リストを再生成</span>
+                    <span class="dot"></span>
+                    <span>LikeでGoogle Mapsを開く</span>
+                </div>
+            </div>
+
+            <div id="card-stack" class="card-stack">
+                <div class="empty-state">
+                    <p>マップで基点を選び、「候補を生成」を押してください。</p>
+                    <p class="sub">観光モードではAI生成デモ動画を再生。グルメモードではホットペッパーAPIの画像を表示。</p>
+                </div>
+            </div>
+
+            <div class="card-actions">
+                <button id="dislike-btn" class="ghost">スキップ</button>
+                <button id="like-btn" class="primary">Likeして地図を開く</button>
+            </div>
+        </section>
+
+        <section class="panel settings-panel">
+            <div class="panel-head">
+                <div>
+                    <p class="eyebrow">Sora2 設定（デモ保存のみ）</p>
+                    <h2>APIキーとモデルIDをローカルに保存</h2>
+                </div>
+            </div>
+            <form id="sora-form" class="settings-form">
+                <label>
+                    APIキー
+                    <input type="text" id="sora-key" placeholder="例: sk-...">
+                </label>
+                <label>
+                    モデルID
+                    <input type="text" id="sora-model" placeholder="例: sora2-v1">
+                </label>
+                <button type="submit" class="primary">設定を保存</button>
+                <p class="note">デモ版ではAPI呼び出しは行わず、入力値をブラウザに保存するのみです。</p>
+            </form>
+        </section>
+    </main>
+</div>
+
+<script>
+    const fallbackImage = "/static/no-image.svg";
+    const videoFallback = "/static/video-fallback.svg";
+
+    let map;
+    let marker;
+    let selectedLat = 35.6809591;
+    let selectedLng = 139.7673068;
+    let radius = 2000;
+    let currentMode = "tourism";
+    let cardData = [];
+    let currentIndex = 0;
+    let isTransitioning = false;
+
+    const cardStackEl = document.getElementById("card-stack");
+    const coordTextEl = document.getElementById("coord-text");
+    const radiusRangeEl = document.getElementById("radius-range");
+    const radiusLabelEl = document.getElementById("radius-label");
+    const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+    const likeBtn = document.getElementById("like-btn");
+    const dislikeBtn = document.getElementById("dislike-btn");
+    const generateBtn = document.getElementById("generate-btn");
+
+    function setBasePoint(lat, lng) {
+        selectedLat = lat;
+        selectedLng = lng;
+        coordTextEl.textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    }
+
+    function updateRadiusDisplay(value) {
+        radius = parseInt(value, 10);
+        radiusLabelEl.textContent = `${(radius / 1000).toFixed(1)} km`;
+    }
+    updateRadiusDisplay(radiusRangeEl.value);
+
+    function initMap() {
+        const initial = { lat: selectedLat, lng: selectedLng };
+        map = new google.maps.Map(document.getElementById("map"), {
+            center: initial,
+            zoom: 13,
+            disableDefaultUI: true,
+            styles: [
+                { featureType: "poi", stylers: [{ visibility: "off" }] },
+                { featureType: "transit", stylers: [{ visibility: "off" }] }
+            ]
+        });
+
+        marker = new google.maps.Marker({
+            position: initial,
+            map,
+            draggable: true,
+            title: "起点",
+        });
+
+        marker.addListener("dragend", (e) => {
+            setBasePoint(e.latLng.lat(), e.latLng.lng());
+        });
+
+        map.addListener("click", (e) => {
+            const { lat, lng } = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+            marker.setPosition({ lat, lng });
+            setBasePoint(lat, lng);
+        });
+    }
+    window.initMap = initMap;
+
+    function setMode(newMode) {
+        currentMode = newMode;
+        modeButtons.forEach(btn => {
+            btn.classList.toggle("active", btn.dataset.mode === newMode);
+        });
+        loadItems(true);
+    }
+
+    async function loadItems(showLoadingCard = false) {
+        if (showLoadingCard) {
+            cardStackEl.innerHTML = '<div class="empty-state loading">読み込み中...</div>';
+        }
+        try {
+            const url = `/api/items?mode=${currentMode}&lat=${selectedLat}&lng=${selectedLng}&radius=${radius}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || "データ取得に失敗しました");
+            }
+            cardData = data.items || [];
+            currentIndex = 0;
+            renderCard();
+            preloadNext();
+        } catch (err) {
+            cardStackEl.innerHTML = `<div class="empty-state error">エラー: ${err.message}</div>`;
+        }
+    }
+
+    function buildTourismMedia(item) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "media-frame";
+
+        const video = document.createElement("video");
+        video.className = "card-video";
+        video.muted = true;
+        video.loop = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.preload = "auto";
+        if (item.videoPath) {
+            video.src = item.videoPath;
+        }
+
+        const fallback = document.createElement("div");
+        fallback.className = "media-fallback";
+        fallback.innerHTML = `
+            <img src="${videoFallback}" alt="video fallback">
+            <p>動画を再生できません。ドロップで差し替え可能。</p>
+        `;
+
+        video.addEventListener("error", () => {
+            video.classList.add("hidden");
+            fallback.classList.add("show");
+        });
+
+        const dropzone = document.createElement("div");
+        dropzone.className = "dropzone";
+        dropzone.innerHTML = "<span>動画をドラッグ & ドロップで差し替え</span>";
+
+        dropzone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            dropzone.classList.add("hover");
+        });
+        dropzone.addEventListener("dragleave", () => {
+            dropzone.classList.remove("hover");
+        });
+        dropzone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            dropzone.classList.remove("hover");
+            const file = e.dataTransfer.files?.[0];
+            if (!file) return;
+            uploadVideo(item.id, file, video, fallback);
+        });
+
+        wrapper.appendChild(video);
+        wrapper.appendChild(fallback);
+        wrapper.appendChild(dropzone);
+        return wrapper;
+    }
+
+    async function uploadVideo(spotId, file, videoEl, fallbackEl) {
+        const ext = file.name.split(".").pop()?.toLowerCase();
+        const allowed = ["mp4", "mov", "webm"];
+        if (!ext || !allowed.includes(ext)) {
+            alert("mp4 / mov / webm のみアップロードできます。");
+            return;
+        }
+        const formData = new FormData();
+        formData.append("spot_id", spotId);
+        formData.append("file", file);
+
+        try {
+            const res = await fetch("/api/upload_video", {
+                method: "POST",
+                body: formData,
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || "アップロードに失敗しました");
+            }
+            const newSrc = data.videoPath;
+            videoEl.classList.remove("hidden");
+            fallbackEl.classList.remove("show");
+            videoEl.src = newSrc;
+            videoEl.play().catch(() => {});
+            const target = cardData.find((c) => c.id === spotId);
+            if (target) {
+                target.videoPath = newSrc;
+            }
+        } catch (err) {
+            alert(err.message);
+        }
+    }
+
+    function buildGourmetMedia(item) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "media-frame";
+        const img = document.createElement("img");
+        img.className = "card-image";
+        img.src = item.imageUrl || fallbackImage;
+        img.alt = `${item.name} の写真`;
+        img.loading = "lazy";
+        img.onerror = () => {
+            img.src = fallbackImage;
+        };
+        wrapper.appendChild(img);
+        return wrapper;
+    }
+
+    function renderCard() {
+        cardStackEl.innerHTML = "";
+        const item = cardData[currentIndex];
+        if (!item) {
+            cardStackEl.innerHTML = `
+                <div class="empty-state">
+                    <p>候補がありません。マップ位置やモードを変えて再生成してください。</p>
+                </div>`;
+            return;
+        }
+
+        const card = document.createElement("article");
+        card.className = "card active";
+        card.dataset.index = currentIndex;
+
+        const badge = document.createElement("div");
+        badge.className = "card-badge";
+        badge.textContent = item.type === "tourism" ? "観光 / AI動画" : "グルメ / Hotpepper";
+
+        const title = document.createElement("h3");
+        title.textContent = item.name;
+
+        const meta = document.createElement("p");
+        meta.className = "card-meta";
+        meta.textContent = `${item.genre || ""}`;
+
+        const desc = document.createElement("p");
+        desc.className = "card-desc";
+        if (item.type === "tourism") {
+            desc.textContent = item.description || "動画で周辺の空気感を確認できます。";
+        } else {
+            const starText = item.star ? `★${item.star.toFixed(1)}` : "評価情報なし";
+            desc.textContent = `${item.genre || "グルメ"} / ${starText}`;
+        }
+
+        const media = item.type === "tourism" ? buildTourismMedia(item) : buildGourmetMedia(item);
+
+        const footer = document.createElement("div");
+        footer.className = "card-footer";
+        footer.innerHTML = `
+            <span>座標: ${item.lat.toFixed(5)}, ${item.lng.toFixed(5)}</span>
+            <span>${item.distanceKm ? `距離: ${item.distanceKm} km` : ""}</span>
+        `;
+
+        card.appendChild(badge);
+        card.appendChild(media);
+        card.appendChild(title);
+        card.appendChild(meta);
+        card.appendChild(desc);
+        card.appendChild(footer);
+
+        cardStackEl.appendChild(card);
+    }
+
+    function animateAndNext(direction, onNext) {
+        if (isTransitioning) return;
+        const card = cardStackEl.querySelector(".card.active");
+        if (!card) return;
+        isTransitioning = true;
+        card.classList.add(direction === "right" ? "swipe-right" : "swipe-left");
+        setTimeout(() => {
+            currentIndex += 1;
+            renderCard();
+            preloadNext();
+            isTransitioning = false;
+            if (typeof onNext === "function") {
+                onNext();
+            }
+        }, 200);
+    }
+
+    function handleLike() {
+        const item = cardData[currentIndex];
+        if (!item) return;
+        const url = `https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`;
+        animateAndNext("right", () => {
+            window.open(url, "_blank");
+        });
+    }
+
+    function handleDislike() {
+        animateAndNext("left");
+    }
+
+    function preloadNext() {
+        const next = cardData[currentIndex + 1];
+        if (!next) return;
+        if (next.type === "gourmet" && next.imageUrl) {
+            const img = new Image();
+            img.src = next.imageUrl;
+        }
+        if (next.type === "tourism" && next.videoPath) {
+            const v = document.createElement("video");
+            v.preload = "auto";
+            v.src = next.videoPath;
+        }
+    }
+
+    function bindGestures() {
+        let startX = null;
+        cardStackEl.addEventListener("touchstart", (e) => {
+            startX = e.changedTouches[0].clientX;
+        });
+        cardStackEl.addEventListener("touchend", (e) => {
+            if (startX === null) return;
+            const diff = e.changedTouches[0].clientX - startX;
+            const threshold = 50;
+            if (diff > threshold) {
+                handleLike();
+            } else if (diff < -threshold) {
+                handleDislike();
+            }
+            startX = null;
+        });
+    }
+
+    function initControls() {
+        modeButtons.forEach((btn) => {
+            btn.addEventListener("click", () => setMode(btn.dataset.mode));
+        });
+
+        likeBtn.addEventListener("click", handleLike);
+        dislikeBtn.addEventListener("click", handleDislike);
+        generateBtn.addEventListener("click", () => loadItems(true));
+
+        radiusRangeEl.addEventListener("input", (e) => updateRadiusDisplay(e.target.value));
+    }
+
+    function restoreSoraSettings() {
+        const key = localStorage.getItem("sora-key") || "";
+        const model = localStorage.getItem("sora-model") || "";
+        document.getElementById("sora-key").value = key;
+        document.getElementById("sora-model").value = model;
+    }
+
+    function bindSoraForm() {
+        const form = document.getElementById("sora-form");
+        form.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const key = document.getElementById("sora-key").value;
+            const model = document.getElementById("sora-model").value;
+            localStorage.setItem("sora-key", key);
+            localStorage.setItem("sora-model", model);
+            alert("ローカルに保存しました（デモ用）。");
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+        initControls();
+        bindGestures();
+        restoreSoraSettings();
+        bindSoraForm();
+        setBasePoint(selectedLat, selectedLng);
+    });
+</script>
+
+<script
+  src="https://maps.googleapis.com/maps/api/js?key={{ google_api_key }}&callback=initMap"
+  async defer
+></script>
+</body>
+</html>
